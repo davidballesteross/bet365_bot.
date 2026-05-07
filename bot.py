@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """
-Bet365 Odds Alert Bot
-- Envia primero cuotas aseguradas, luego arriesgadas
-- 3 segundos entre mensajes
-- Comandos: /cuotas /aseguradas /arriesgadas /estado /parar /arrancar /minima /ayuda
+Bet365 Odds Alert Bot — cuotas reales, favorito claro, esta semana.
 """
 
 import asyncio
@@ -21,21 +18,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ─── CONFIGURACIÓN ─────────────────────────────────────────────
 TELEGRAM_TOKEN = "8736427026:AAEmZKoAgKgl_W7lX6qx9707O9cfmIRUXEA"
 CHAT_ID        = "6421292470"
 ODDS_API_KEY   = "4689f9cb119dd0db5cbb9844165a5f0f"
 
-CHECK_INTERVAL = 300   # 5 minutos
-MAX_MATCHES    = 5     # máximo por modo
-MSG_DELAY      = 3     # segundos entre mensajes
+CHECK_INTERVAL = 300
+MAX_MATCHES    = 5
+MSG_DELAY      = 3
 SPORTS         = ["football", "tennis"]
-# ───────────────────────────────────────────────────────────────
 
-estado = {
-    "pausado":  False,
-    "ultimo":   "Nunca",
-}
+estado = {"pausado": False, "ultimo": "Nunca"}
 
 
 async def get_updates(token, offset):
@@ -50,68 +42,49 @@ async def get_updates(token, offset):
         return []
 
 
-async def enviar_cuotas(notifier, scraper, modo="ambas"):
-    """Obtiene y envía cuotas: primero aseguradas, luego arriesgadas."""
-    await notifier.send_message("🔍 Buscando cuotas en las 5 grandes ligas...")
-    result = await scraper.fetch_odds()
-
-    aseguradas  = result.get("asegurada", [])[:MAX_MATCHES]
-    arriesgadas = result.get("arriesgada", [])[:MAX_MATCHES]
-
-    if modo == "asegurada":
-        arriesgadas = []
-    elif modo == "arriesgada":
-        aseguradas = []
-
-    total = len(aseguradas) + len(arriesgadas)
-    if total == 0:
-        await notifier.send_message("😔 No hay partidos disponibles ahora mismo.")
-        return set()
-
-    enviados = set()
-
-    if aseguradas:
-        await notifier.send_message("🔒 *CUOTAS ASEGURADAS* — Favoritos del momento")
+async def enviar_bloque(notifier, matches, modo, cabecera):
+    if not matches:
+        return
+    await notifier.send_message(cabecera)
+    await asyncio.sleep(MSG_DELAY)
+    for m in matches[:MAX_MATCHES]:
+        await notifier.send_match_alert(m, modo=modo)
         await asyncio.sleep(MSG_DELAY)
-        for m in aseguradas:
-            await notifier.send_match_alert(m)
-            enviados.add(m["id"])
-            await asyncio.sleep(MSG_DELAY)
-
-    if arriesgadas:
-        await notifier.send_message("🔥 *CUOTAS ARRIESGADAS* — Alta rentabilidad")
-        await asyncio.sleep(MSG_DELAY)
-        for m in arriesgadas:
-            await notifier.send_match_alert(m)
-            enviados.add(m["id"])
-            await asyncio.sleep(MSG_DELAY)
-
-    return enviados
 
 
-async def handle_commands(notifier, scraper, offset, seen_matches):
+async def handle_commands(notifier, scraper, offset, seen):
     updates = await get_updates(TELEGRAM_TOKEN, offset)
 
     for update in updates:
-        offset = update["update_id"] + 1
-        msg    = update.get("message", {})
-        text   = msg.get("text", "").strip().lower()
+        offset  = update["update_id"] + 1
+        msg     = update.get("message", {})
+        text    = msg.get("text", "").strip().lower()
         chat_id = str(msg.get("chat", {}).get("id", ""))
 
         if chat_id != CHAT_ID:
             continue
 
-        if text == "/cuotas":
-            nuevos = await enviar_cuotas(notifier, scraper, modo="ambas")
-            seen_matches.update(nuevos)
+        if text in ["/cuotas", "/aseguradas", "/arriesgadas"]:
+            await notifier.send_message("🔍 Buscando partidos de esta semana...")
+            result = await scraper.fetch_odds()
+            seg = result.get("asegurada", [])
+            arr = result.get("arriesgada", [])
 
-        elif text == "/aseguradas":
-            nuevos = await enviar_cuotas(notifier, scraper, modo="asegurada")
-            seen_matches.update(nuevos)
+            if text in ["/cuotas", "/aseguradas"]:
+                if seg:
+                    await enviar_bloque(notifier, seg, "asegurada",
+                        "🔒 *APUESTAS ASEGURADAS* — Favoritos claros esta semana")
+                else:
+                    await notifier.send_message("😔 No hay favoritos claros (cuota < 1.5) esta semana.")
 
-        elif text == "/arriesgadas":
-            nuevos = await enviar_cuotas(notifier, scraper, modo="arriesgada")
-            seen_matches.update(nuevos)
+            if text in ["/cuotas", "/arriesgadas"]:
+                if arr:
+                    await enviar_bloque(notifier, arr, "arriesgada",
+                        "🔥 *APUESTAS ARRIESGADAS* — Partidos equilibrados esta semana")
+                else:
+                    await notifier.send_message("😔 No hay partidos arriesgados disponibles.")
+
+            seen.update(m["id"] for m in seg + arr)
 
         elif text == "/estado":
             p = "⏸ Pausado" if estado["pausado"] else "▶️ Activo"
@@ -120,8 +93,7 @@ async def handle_commands(notifier, scraper, offset, seen_matches):
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"{p}\n"
                 f"🕐 Última revisión: *{estado['ultimo']}*\n"
-                f"🔄 Intervalo: *{CHECK_INTERVAL // 60} minutos*\n"
-                f"⏱ Retraso entre mensajes: *{MSG_DELAY}s*"
+                f"🔄 Intervalo: *{CHECK_INTERVAL // 60} minutos*"
             )
 
         elif text == "/parar":
@@ -136,9 +108,9 @@ async def handle_commands(notifier, scraper, offset, seen_matches):
             await notifier.send_message(
                 "🤖 *Comandos disponibles:*\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
-                "/cuotas — Aseguradas + arriesgadas ahora\n"
-                "/aseguradas — Solo favoritos (cuota baja)\n"
-                "/arriesgadas — Solo cuotas altas (> 2.0)\n"
+                "/cuotas — Aseguradas + arriesgadas\n"
+                "/aseguradas — Solo favoritos claros (cuota < 1.5)\n"
+                "/arriesgadas — Solo partidos equilibrados\n"
                 "/estado — Ver estado del bot\n"
                 "/parar — Pausar alertas automáticas\n"
                 "/arrancar — Reanudar alertas\n"
@@ -159,17 +131,17 @@ async def main():
         "🇪🇸 LaLiga | 🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier | 🇩🇪 Bundesliga\n"
         "🇮🇹 Serie A | 🇫🇷 Ligue 1 | 🎾 Tenis\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "🔒 Primero aseguradas, luego arriesgadas\n"
-        f"🔄 Revisando cada *{CHECK_INTERVAL // 60} minutos*\n"
+        "📅 Solo partidos de esta semana\n"
+        "💰 Cuotas medias reales de múltiples casas\n"
         "📱 Escribe /ayuda para ver comandos"
     )
 
-    seen_matches = set()
+    seen   = set()
     offset = 0
     last_check = 0
 
     while True:
-        offset = await handle_commands(notifier, scraper, offset, seen_matches)
+        offset = await handle_commands(notifier, scraper, offset, seen)
 
         now = asyncio.get_event_loop().time()
 
@@ -179,38 +151,23 @@ async def main():
 
             try:
                 result = await scraper.fetch_odds()
-                aseguradas  = [m for m in result.get("asegurada",  []) if m["id"] not in seen_matches][:MAX_MATCHES]
-                arriesgadas = [m for m in result.get("arriesgada", []) if m["id"] not in seen_matches][:MAX_MATCHES]
+                seg = [m for m in result.get("asegurada",  []) if m["id"] not in seen]
+                arr = [m for m in result.get("arriesgada", []) if m["id"] not in seen]
 
-                total = len(aseguradas) + len(arriesgadas)
-
-                if total > 0:
-                    if aseguradas:
-                        await notifier.send_message("🔒 *CUOTAS ASEGURADAS* — Favoritos del momento")
-                        await asyncio.sleep(MSG_DELAY)
-                        for m in aseguradas:
-                            await notifier.send_match_alert(m)
-                            seen_matches.add(m["id"])
-                            await asyncio.sleep(MSG_DELAY)
-
-                    if arriesgadas:
-                        await notifier.send_message("🔥 *CUOTAS ARRIESGADAS* — Alta rentabilidad")
-                        await asyncio.sleep(MSG_DELAY)
-                        for m in arriesgadas:
-                            await notifier.send_match_alert(m)
-                            seen_matches.add(m["id"])
-                            await asyncio.sleep(MSG_DELAY)
-
-                    # Marcar todos como vistos
-                    for m in result.get("asegurada", []):
-                        seen_matches.add(m["id"])
-                    for m in result.get("arriesgada", []):
-                        seen_matches.add(m["id"])
-                else:
+                if seg:
+                    await enviar_bloque(notifier, seg, "asegurada",
+                        "🔒 *APUESTAS ASEGURADAS* — Favoritos claros esta semana")
+                if arr:
+                    await enviar_bloque(notifier, arr, "arriesgada",
+                        "🔥 *APUESTAS ARRIESGADAS* — Partidos equilibrados esta semana")
+                if not seg and not arr:
                     logger.info("Sin partidos nuevos")
 
-                if len(seen_matches) > 500:
-                    seen_matches.clear()
+                for m in result.get("asegurada", []) + result.get("arriesgada", []):
+                    seen.add(m["id"])
+
+                if len(seen) > 500:
+                    seen.clear()
 
             except Exception as e:
                 logger.error(f"Error: {e}")
@@ -224,6 +181,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
