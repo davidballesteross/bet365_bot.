@@ -269,6 +269,8 @@ async def main():
 
             try:
                 result = await scraper.fetch_odds()
+                _cache["data"] = result
+                _cache["timestamp"] = asyncio.get_event_loop().time()
                 seg = [m for m in result.get("asegurada", []) if m["id"] not in seen]
                 arr = [m for m in result.get("arriesgada", []) if m["id"] not in seen]
 
