@@ -147,12 +147,29 @@ async def handle_commands(notifier, scraper, offset, seen):
             save_state(seen, False)
             await notifier.send_message("Bot reanudado.")
 
+        elif text == "/mejor":
+            await notifier.send_message("Buscando las 5 mejores apuestas del día...")
+            result = await fetch_with_cache(scraper)
+            seg = result.get("asegurada", [])
+            arr = result.get("arriesgada", [])
+            todos = sorted(seg + arr, key=lambda m: m.get("confianza", 0), reverse=True)
+            top5 = todos[:5]
+            if top5:
+                await notifier.send_message("🏆 *TOP 5 APUESTAS DEL DÍA*\nOrdenadas por confianza")
+                for m in top5:
+                    modo = "asegurada" if m in seg else "arriesgada"
+                    await notifier.send_match_alert(m, modo=modo)
+                    await asyncio.sleep(MSG_DELAY)
+            else:
+                await notifier.send_message("No hay apuestas disponibles ahora mismo.")
+
         elif text in ["/ayuda", "/start"]:
             await notifier.send_message(
                 "*Comandos disponibles:*\n"
                 "/cuotas - Aseguradas + arriesgadas\n"
                 "/aseguradas - Solo favoritos claros\n"
                 "/arriesgadas - Solo partidos equilibrados\n"
+                "/mejor - La mejor apuesta del día 🏆\n"
                 "/liga - Filtrar por liga\n"
                 "/estado - Ver estado del bot\n"
                 "/parar - Pausar alertas\n"
@@ -198,11 +215,14 @@ async def main():
                 seg = [m for m in result.get("asegurada", []) if m["id"] not in seen]
                 arr = [m for m in result.get("arriesgada", []) if m["id"] not in seen]
 
-                if seg:
-                    await enviar_bloque(notifier, seg, "asegurada",
+                # Solo alertas automáticas con confianza >= 50
+                seg_top = [m for m in seg if m.get("confianza", 0) >= 50]
+                arr_top = [m for m in arr if m.get("confianza", 0) >= 50]
+                if seg_top:
+                    await enviar_bloque(notifier, seg_top, "asegurada",
                         "*APUESTAS ASEGURADAS* - Favoritos claros esta semana")
-                if arr:
-                    await enviar_bloque(notifier, arr, "arriesgada",
+                if arr_top:
+                    await enviar_bloque(notifier, arr_top, "arriesgada",
                         "*APUESTAS ARRIESGADAS* - Partidos equilibrados esta semana")
 
                 for m in result.get("asegurada", []) + result.get("arriesgada", []):
