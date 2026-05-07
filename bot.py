@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""
-Bet365 Odds Alert Bot — cuotas reales, favorito claro, esta semana.
-"""
-
 import asyncio
 import logging
-import aiohttp
 from datetime import datetime
+
+import aiohttp
 
 from scraper import Bet365Scraper
 from notifier import TelegramNotifier
+from state import load_state, save_state
+from scheduler import check_daily_summary
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,10 +21,18 @@ TELEGRAM_TOKEN = "8736427026:AAEmZKoAgKgl_W7lX6qx9707O9cfmIRUXEA"
 CHAT_ID        = "6421292470"
 ODDS_API_KEY   = "4689f9cb119dd0db5cbb9844165a5f0f"
 
-CHECK_INTERVAL = 300
+CHECK_INTERVAL = 1800
 MAX_MATCHES    = 5
 MSG_DELAY      = 3
 SPORTS         = ["football", "tennis"]
+
+LIGAS_MAP = {
+    "laliga":     "LaLiga",
+    "premier":    "Premier",
+    "bundesliga": "Bundesliga",
+    "seriea":     "Serie A",
+    "ligue1":     "Ligue 1",
+}
 
 estado = {"pausado": False, "ultimo": "Nunca"}
 
@@ -65,7 +72,7 @@ async def handle_commands(notifier, scraper, offset, seen):
             continue
 
         if text in ["/cuotas", "/aseguradas", "/arriesgadas"]:
-            await notifier.send_message("🔍 Buscando partidos de esta semana...")
+            await notifier.send_message("Buscando partidos de esta semana...")
             result = await scraper.fetch_odds()
             seg = result.get("asegurada", [])
             arr = result.get("arriesgada", [])
@@ -73,48 +80,73 @@ async def handle_commands(notifier, scraper, offset, seen):
             if text in ["/cuotas", "/aseguradas"]:
                 if seg:
                     await enviar_bloque(notifier, seg, "asegurada",
-                        "🔒 *APUESTAS ASEGURADAS* — Favoritos claros esta semana")
+                        "*APUESTAS ASEGURADAS* - Favoritos claros esta semana")
                 else:
-                    await notifier.send_message("😔 No hay favoritos claros (cuota < 1.5) esta semana.")
+                    await notifier.send_message("No hay favoritos claros (cuota < 1.5) esta semana.")
 
             if text in ["/cuotas", "/arriesgadas"]:
                 if arr:
                     await enviar_bloque(notifier, arr, "arriesgada",
-                        "🔥 *APUESTAS ARRIESGADAS* — Partidos equilibrados esta semana")
+                        "*APUESTAS ARRIESGADAS* - Partidos equilibrados esta semana")
                 else:
-                    await notifier.send_message("😔 No hay partidos arriesgados disponibles.")
+                    await notifier.send_message("No hay partidos arriesgados disponibles.")
 
             seen.update(m["id"] for m in seg + arr)
 
+        elif text.startswith("/liga"):
+            liga = text.replace("/liga", "").strip()
+            if not liga:
+                await notifier.send_message(
+                    "Ligas disponibles:\n"
+                    "/liga laliga\n"
+                    "/liga premier\n"
+                    "/liga bundesliga\n"
+                    "/liga seriea\n"
+                    "/liga ligue1"
+                )
+            else:
+                nombre = LIGAS_MAP.get(liga.replace(" ", ""), liga)
+                await notifier.send_message(f"Buscando partidos de {nombre}...")
+                result = await scraper.fetch_odds(liga_filter=liga)
+                seg = result.get("asegurada", [])
+                arr = result.get("arriesgada", [])
+                if seg:
+                    await enviar_bloque(notifier, seg, "asegurada", f"*ASEGURADAS - {nombre}*")
+                if arr:
+                    await enviar_bloque(notifier, arr, "arriesgada", f"*ARRIESGADAS - {nombre}*")
+                if not seg and not arr:
+                    await notifier.send_message(f"No hay partidos de {nombre} esta semana.")
+
         elif text == "/estado":
-            p = "⏸ Pausado" if estado["pausado"] else "▶️ Activo"
+            p = "Pausado" if estado["pausado"] else "Activo"
             await notifier.send_message(
-                f"📊 *Estado del bot*\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"*Estado del bot*\n"
                 f"{p}\n"
-                f"🕐 Última revisión: *{estado['ultimo']}*\n"
-                f"🔄 Intervalo: *{CHECK_INTERVAL // 60} minutos*"
+                f"Ultima revision: *{estado['ultimo']}*\n"
+                f"Intervalo: *{CHECK_INTERVAL // 60} minutos*"
             )
 
         elif text == "/parar":
             estado["pausado"] = True
-            await notifier.send_message("⏸ *Bot pausado.* Escribe /arrancar para reanudar.")
+            save_state(seen, True)
+            await notifier.send_message("Bot pausado. Escribe /arrancar para reanudar.")
 
         elif text == "/arrancar":
             estado["pausado"] = False
-            await notifier.send_message("▶️ *Bot reanudado.*")
+            save_state(seen, False)
+            await notifier.send_message("Bot reanudado.")
 
         elif text in ["/ayuda", "/start"]:
             await notifier.send_message(
-                "🤖 *Comandos disponibles:*\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
-                "/cuotas — Aseguradas + arriesgadas\n"
-                "/aseguradas — Solo favoritos claros (cuota < 1.5)\n"
-                "/arriesgadas — Solo partidos equilibrados\n"
-                "/estado — Ver estado del bot\n"
-                "/parar — Pausar alertas automáticas\n"
-                "/arrancar — Reanudar alertas\n"
-                "/ayuda — Ver esta ayuda"
+                "*Comandos disponibles:*\n"
+                "/cuotas - Aseguradas + arriesgadas\n"
+                "/aseguradas - Solo favoritos claros\n"
+                "/arriesgadas - Solo partidos equilibrados\n"
+                "/liga - Filtrar por liga\n"
+                "/estado - Ver estado del bot\n"
+                "/parar - Pausar alertas\n"
+                "/arrancar - Reanudar alertas\n"
+                "/ayuda - Ver esta ayuda"
             )
 
     return offset
@@ -125,20 +157,21 @@ async def main():
     notifier = TelegramNotifier(TELEGRAM_TOKEN, CHAT_ID)
     scraper  = Bet365Scraper(sports=SPORTS, min_odds=0.0, api_key=ODDS_API_KEY)
 
+    _s = load_state()
+    seen = set(_s["seen_matches"])
+    estado["pausado"] = _s["pausado"]
+
     await notifier.send_message(
-        "✅ *Bot de cuotas iniciado*\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "🇪🇸 LaLiga | 🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier | 🇩🇪 Bundesliga\n"
-        "🇮🇹 Serie A | 🇫🇷 Ligue 1 | 🎾 Tenis\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "📅 Solo partidos de esta semana\n"
-        "💰 Cuotas medias reales de múltiples casas\n"
-        "📱 Escribe /ayuda para ver comandos"
+        "*Bot de cuotas iniciado*\n"
+        "LaLiga | Premier | Bundesliga\n"
+        "Serie A | Ligue 1 | Tenis\n"
+        "Solo partidos de esta semana\n"
+        "Escribe /ayuda para ver comandos"
     )
 
-    seen   = set()
     offset = 0
     last_check = 0
+    last_summary = None
 
     while True:
         offset = await handle_commands(notifier, scraper, offset, seen)
@@ -151,31 +184,28 @@ async def main():
 
             try:
                 result = await scraper.fetch_odds()
-                seg = [m for m in result.get("asegurada",  []) if m["id"] not in seen]
+                seg = [m for m in result.get("asegurada", []) if m["id"] not in seen]
                 arr = [m for m in result.get("arriesgada", []) if m["id"] not in seen]
 
                 if seg:
                     await enviar_bloque(notifier, seg, "asegurada",
-                        "🔒 *APUESTAS ASEGURADAS* — Favoritos claros esta semana")
+                        "*APUESTAS ASEGURADAS* - Favoritos claros esta semana")
                 if arr:
                     await enviar_bloque(notifier, arr, "arriesgada",
-                        "🔥 *APUESTAS ARRIESGADAS* — Partidos equilibrados esta semana")
-                if not seg and not arr:
-                    logger.info("Sin partidos nuevos")
+                        "*APUESTAS ARRIESGADAS* - Partidos equilibrados esta semana")
 
                 for m in result.get("asegurada", []) + result.get("arriesgada", []):
                     seen.add(m["id"])
+
+                save_state(seen, estado["pausado"])
 
                 if len(seen) > 500:
                     seen.clear()
 
             except Exception as e:
                 logger.error(f"Error: {e}")
-                try:
-                    await notifier.send_message(f"⚠️ Error: {e}")
-                except:
-                    pass
 
+        last_summary = await check_daily_summary(notifier, scraper, last_summary)
         await asyncio.sleep(2)
 
 
