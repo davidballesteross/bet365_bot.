@@ -150,13 +150,24 @@ async def handle_commands(notifier, scraper, offset, seen):
             save_state(seen, False)
             await notifier.send_message("Bot reanudado.")
 
-        elif text == "/combinada":
-            await notifier.send_message("Buscando combinada del día...")
+        elif text in ["/combinada", "/combinada baja", "/combinada media", "/combinada alta"]:
             result = await fetch_with_cache(scraper)
             seg = result.get("asegurada", [])
             arr = result.get("arriesgada", [])
-            todos = sorted(seg + arr, key=lambda m: m.get("confianza", 0), reverse=True)
-            combinada = todos[:4]
+            if text == "/combinada baja":
+                titulo = "🟢 COMBINADA BAJA"
+                pool = sorted([m for m in seg + arr if 1.40 <= m["odd_favorito"] <= 1.80], key=lambda m: m.get("confianza", 0), reverse=True)
+                n = 4
+            elif text == "/combinada alta":
+                titulo = "🔴 COMBINADA ALTA"
+                pool = sorted([m for m in seg + arr if m["odd_favorito"] >= 1.60], key=lambda m: m.get("confianza", 0), reverse=True)
+                n = 6
+            else:
+                titulo = "🟡 COMBINADA MEDIA"
+                pool = sorted([m for m in seg + arr if 1.40 <= m["odd_favorito"] <= 2.20], key=lambda m: m.get("confianza", 0), reverse=True)
+                n = 5
+            await notifier.send_message(f"Buscando {titulo.lower()}...")
+            combinada = pool[:n]
             if len(combinada) >= 2:
                 cuota_total = 1.0
                 for m in combinada:
@@ -171,7 +182,7 @@ async def handle_commands(notifier, scraper, offset, seen):
                     conf_emoji = "🔴"
                 lineas = "\n".join([f"  • {m['favorito']} ({m['odd_favorito']:.2f}) — {m['liga']}" for m in combinada])
                 await notifier.send_message(
-                    f"🎰 *COMBINADA DEL DÍA*\n"
+                    f"🎰 *{titulo}*\n"
                     f"{'─' * 28}\n"
                     f"{lineas}\n"
                     f"{'─' * 28}\n"
@@ -181,7 +192,7 @@ async def handle_commands(notifier, scraper, offset, seen):
                     f"⚠️ Apuesta responsablemente"
                 )
             else:
-                await notifier.send_message("No hay suficientes partidos para una combinada ahora mismo.")
+                await notifier.send_message("No hay suficientes partidos para esta combinada ahora mismo.")
 
         elif text == "/mejor":
             await notifier.send_message("Buscando las 5 mejores apuestas del día...")
