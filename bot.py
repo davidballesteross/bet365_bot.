@@ -84,7 +84,7 @@ async def handle_commands(notifier, scraper, offset, seen):
 
         if text in ["/cuotas", "/aseguradas", "/arriesgadas"]:
             await notifier.send_message("Buscando partidos de esta semana...")
-            result = await scraper.fetch_odds()
+            result = await fetch_with_cache(scraper)
             seg = result.get("asegurada", [])
             arr = result.get("arriesgada", [])
 
@@ -103,6 +103,15 @@ async def handle_commands(notifier, scraper, offset, seen):
                     await notifier.send_message("No hay partidos arriesgados disponibles.")
 
             seen.update(m["id"] for m in seg + arr)
+
+        elif text == "/combinada":
+            await notifier.send_message(
+                "🎰 *¿Qué combinada quieres?*\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "🟢 /combinada\_baja — 4 partidos seguros\n"
+                "🟡 /combinada\_media — 5 partidos equilibrados\n"
+                "🔴 /combinada\_alta — 6 partidos arriesgados"
+            )
 
         elif text.startswith("/liga"):
             liga = text.replace("/liga", "").strip()
@@ -150,15 +159,15 @@ async def handle_commands(notifier, scraper, offset, seen):
             save_state(seen, False)
             await notifier.send_message("Bot reanudado.")
 
-        elif text in ["/combinada", "/combinada baja", "/combinada media", "/combinada alta"]:
+        elif text in ["/combinada_baja", "/combinada_media", "/combinada_alta"]:
             result = await fetch_with_cache(scraper)
             seg = result.get("asegurada", [])
             arr = result.get("arriesgada", [])
-            if text == "/combinada baja":
+            if text == "/combinada_baja":
                 titulo = "🟢 COMBINADA BAJA"
                 pool = sorted([m for m in seg + arr if 1.40 <= m["odd_favorito"] <= 1.80], key=lambda m: m.get("confianza", 0), reverse=True)
                 n = 4
-            elif text == "/combinada alta":
+            elif text == "/combinada_alta":
                 titulo = "🔴 COMBINADA ALTA"
                 pool = sorted([m for m in seg + arr if m["odd_favorito"] >= 1.60], key=lambda m: m.get("confianza", 0), reverse=True)
                 n = 6
@@ -213,16 +222,16 @@ async def handle_commands(notifier, scraper, offset, seen):
         elif text in ["/ayuda", "/start"]:
             await notifier.send_message(
                 "*Comandos disponibles:*\n"
-                "/cuotas - Aseguradas + arriesgadas\n"
-                "/aseguradas - Solo favoritos claros\n"
-                "/arriesgadas - Solo partidos equilibrados\n"
-                "/mejor - Top 5 apuestas del día 🏆\n"
-                "/combinada - Combinada del día 🎰\n"
-                "/liga - Filtrar por liga\n"
-                "/estado - Ver estado del bot\n"
-                "/parar - Pausar alertas\n"
-                "/arrancar - Reanudar alertas\n"
-                "/ayuda - Ver esta ayuda"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "📊 /cuotas — Todos los partidos\n"
+                "🔒 /aseguradas — Solo favoritos\n"
+                "🔥 /arriesgadas — Partidos parejos\n"
+                "🏆 /mejor — Top 5 del día\n"
+                "🎰 /combinada — Ver opciones\n"
+                "🌍 /liga — Filtrar por liga\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "⚙️ /estado — Estado del bot\n"
+                "/parar | /arrancar"
             )
 
     return offset
