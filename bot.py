@@ -21,7 +21,9 @@ TELEGRAM_TOKEN = "8736427026:AAEmZKoAgKgl_W7lX6qx9707O9cfmIRUXEA"
 CHAT_ID        = "6421292470"
 ODDS_API_KEY   = "4689f9cb119dd0db5cbb9844165a5f0f"
 
-CHECK_INTERVAL = 1800
+CHECK_INTERVAL = 10800
+CACHE_TTL = 1800
+_cache = {"data": None, "timestamp": 0}
 MAX_MATCHES    = 5
 MSG_DELAY      = 3
 SPORTS         = ["football", "tennis"]
@@ -48,6 +50,15 @@ async def get_updates(token, offset):
     except:
         return []
 
+
+async def fetch_with_cache(scraper):
+    now = asyncio.get_event_loop().time()
+    if _cache["data"] and (now - _cache["timestamp"]) < CACHE_TTL:
+        return _cache["data"]
+    result = await scraper.fetch_odds()
+    _cache["data"] = result
+    _cache["timestamp"] = now
+    return result
 
 async def enviar_bloque(notifier, matches, modo, cabecera):
     if not matches:
