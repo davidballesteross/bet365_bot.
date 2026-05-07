@@ -113,7 +113,10 @@ async def handle_commands(notifier, scraper, offset, seen):
                     "/liga premier\n"
                     "/liga bundesliga\n"
                     "/liga seriea\n"
-                    "/liga ligue1"
+                    "/liga ligue1\n"
+                    "/liga champions\n"
+                    "/liga europa\n"
+                    "/liga nba"
                 )
             else:
                 nombre = LIGAS_MAP.get(liga.replace(" ", ""), liga)
@@ -147,6 +150,39 @@ async def handle_commands(notifier, scraper, offset, seen):
             save_state(seen, False)
             await notifier.send_message("Bot reanudado.")
 
+        elif text == "/combinada":
+            await notifier.send_message("Buscando combinada del día...")
+            result = await fetch_with_cache(scraper)
+            seg = result.get("asegurada", [])
+            arr = result.get("arriesgada", [])
+            todos = sorted(seg + arr, key=lambda m: m.get("confianza", 0), reverse=True)
+            combinada = todos[:4]
+            if len(combinada) >= 2:
+                cuota_total = 1.0
+                for m in combinada:
+                    cuota_total *= m["odd_favorito"]
+                cuota_total = round(cuota_total, 2)
+                confianza_media = int(sum(m.get("confianza", 0) for m in combinada) / len(combinada))
+                if confianza_media >= 75:
+                    conf_emoji = "🟢"
+                elif confianza_media >= 50:
+                    conf_emoji = "🟡"
+                else:
+                    conf_emoji = "🔴"
+                lineas = "\n".join([f"  • {m['favorito']} ({m['odd_favorito']:.2f}) — {m['liga']}" for m in combinada])
+                await notifier.send_message(
+                    f"🎰 *COMBINADA DEL DÍA*\n"
+                    f"{'─' * 28}\n"
+                    f"{lineas}\n"
+                    f"{'─' * 28}\n"
+                    f"💰 Cuota total: *{cuota_total}*\n"
+                    f"{conf_emoji} Confianza media: *{confianza_media}%*\n"
+                    f"{'─' * 28}\n"
+                    f"⚠️ Apuesta responsablemente"
+                )
+            else:
+                await notifier.send_message("No hay suficientes partidos para una combinada ahora mismo.")
+
         elif text == "/mejor":
             await notifier.send_message("Buscando las 5 mejores apuestas del día...")
             result = await fetch_with_cache(scraper)
@@ -169,7 +205,8 @@ async def handle_commands(notifier, scraper, offset, seen):
                 "/cuotas - Aseguradas + arriesgadas\n"
                 "/aseguradas - Solo favoritos claros\n"
                 "/arriesgadas - Solo partidos equilibrados\n"
-                "/mejor - La mejor apuesta del día 🏆\n"
+                "/mejor - Top 5 apuestas del día 🏆\n"
+                "/combinada - Combinada del día 🎰\n"
                 "/liga - Filtrar por liga\n"
                 "/estado - Ver estado del bot\n"
                 "/parar - Pausar alertas\n"
