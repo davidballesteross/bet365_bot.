@@ -1,3 +1,6 @@
+import os
+from dotenv import load_dotenv
+load_dotenv()
 #!/usr/bin/env python3
 import asyncio
 import logging
@@ -17,9 +20,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TELEGRAM_TOKEN = "8736427026:AAEmZKoAgKgl_W7lX6qx9707O9cfmIRUXEA"
-CHAT_ID        = "6421292470"
-ODDS_API_KEY   = "4689f9cb119dd0db5cbb9844165a5f0f"
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID        = os.getenv("CHAT_ID")
+ODDS_API_KEY   = os.getenv("ODDS_API_KEY")
 
 CHECK_INTERVAL = 10800
 CACHE_TTL = 1800
