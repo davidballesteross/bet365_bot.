@@ -1,1 +1,8 @@
 .env
+bot.log
+nohup.out
+state.json
+*.bak
+*.bak2
+__pycache__/
+*.pyc

@@ -1,10 +1,11 @@
-import os
-from dotenv import load_dotenv
-load_dotenv()
 #!/usr/bin/env python3
+import os
 import asyncio
 import logging
 from datetime import datetime
+
+from dotenv import load_dotenv
+load_dotenv()
 
 import aiohttp
 
@@ -277,7 +278,6 @@ async def main():
                 seg = [m for m in result.get("asegurada", []) if m["id"] not in seen]
                 arr = [m for m in result.get("arriesgada", []) if m["id"] not in seen]
 
-                # Solo alertas automáticas con confianza >= 50
                 seg_top = [m for m in seg if m.get("confianza", 0) >= 50]
                 arr_top = [m for m in arr if m.get("confianza", 0) >= 50]
                 if seg_top:
